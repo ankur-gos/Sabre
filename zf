@@ -1,0 +1,2 @@
+#!/bin/bash
+zip solution.zip myTeam.py name.txt
