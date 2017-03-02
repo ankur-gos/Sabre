@@ -16,7 +16,7 @@ import game
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'DummyAgent', second = 'DummyAgent'):
+               first = 'Agent', second = 'Agent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -38,6 +38,78 @@ def createTeam(firstIndex, secondIndex, isRed,
 ##########
 # Agents #
 ##########
+
+"""
+  Idea 1 (Rush Strat):
+    Basic Idea: Both agents available to us are on offense
+
+    If the other team runs a standard 1 offense, 1 defense, we will be able to beat them.
+    The idea is that one pacman runs diversion while the other scoops up pellets. When
+    the diversion pacman (dp) dies, he runs an effecient defense back towards the other
+    end of the field. The other pacman then becomes dp once the other pacman reenters the field.
+"""
+
+class Agent(CaptureAgent):
+  def __init__( self, index, timeForComputing = .1 ):
+    """
+    Lists several variables you can query:
+    self.index = index for this agent
+    self.red = true if you're on the red team, false otherwise
+    self.agentsOnTeam = a list of agent objects that make up your team
+    self.distancer = distance calculator (contest code provides this)
+    self.observationHistory = list of GameState objects that correspond
+        to the sequential order of states that have occurred so far this game
+    self.timeForComputing = an amount of time to give each turn for computing maze distances
+        (part of the provided distance calculator)
+    """
+    # Agent index for querying state
+    self.index = index
+    # Whether or not you're on the red team
+    self.red = None
+    # Agent objects controlling you and your teammates
+    self.agentsOnTeam = None
+    # Maze distance calculator
+    self.distancer = None
+    # A history of observations
+    self.observationHistory = []
+    # Time to spend each turn on computing maze distances
+    self.timeForComputing = timeForComputing
+    # Access to the graphics
+    self.display = None
+
+  def isOnAttackingSide(self, gameState):
+    pos = gameState.getAgentPosition(self.index)
+    if self.red:
+      if pos[0] > gameState.data.layout.width/2:
+        return True
+    else:
+      if pos[0] <= gameState.data.layout.width/2:
+        return True
+    return False
+
+  def handleDefense(self, gameState):
+    return max(gameState.getLegalActions(self.index), key=lambda action: self.getDefenseQValue(gameState, action))
+  
+  def getDefenseQValue(self, gameState, action):
+    successor = gameState.generateSuccessor(self.index, action)
+    # Move in the direction of the nearest ghost
+    currentObservation = self.getCurrentObservation()
+    print currentObservation
+    return 0
+
+  def chooseAction(self, gameState):
+    """
+    Picks among actions randomly.
+    """
+    if not self.isOnAttackingSide(gameState):
+      self.handleDefense(gameState)
+    actions = gameState.getLegalActions(self.index)
+
+    ''' 
+    You should change this in your own agent.
+    '''
+
+    return random.choice(actions)
 
 class DummyAgent(CaptureAgent):
   """
