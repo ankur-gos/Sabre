@@ -113,7 +113,7 @@ class Agent(CaptureAgent):
     for i, pos in enumerate(absoluteDistances):
       if pos[1] is None:
         continue
-      # dist = self.getMazeDistance(myPos, pos[1]) 
+      # dist = self.getMazeDistance(myPos, pos[1])
       absoluteDistances[i] = self.getMazeDistance(myPos, pos[1])
     ndistances = successor.getAgentDistances()
     print 'ndistances: ' + str(ndistances)
@@ -249,28 +249,29 @@ class Agent(CaptureAgent):
     foodList = self.getFood(successor).asList()
     if len(foodList) > 0: # This should always be True,  but better safe than sorry
       myPos = successor.getAgentState(self.index).getPosition()
-      minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-      features['distanceToFood'] = minDistance
+      minDistanceFood = min([self.getMazeDistance(myPos, food) for food in foodList])
+      features['distanceToFood'] = minDistanceFood
       for i, pos in enumerate(absoluteDistances):
         if pos is None:
           continue
         dist = self.getMazeDistance(myPos, pos)
         absoluteDistances[i] = self.getMazeDistance(myPos, pos)
         capList = gameState.getCapsules()
-        minDistance = min([self.getMazeDistance(myPos, cap) for cap in capList]) if len(capList) > 0 else 0
+        minDistanceCap = min([self.getMazeDistance(myPos, cap) for cap in capList]) if len(capList) > 0 else 0
         opponents_pos = map(lambda i: successor.getAgentPosition(i), opponents)
         close_opponents = [opp for opp in opponents_pos if opp is not None]
         opponent_nearby = len(close_opponents) != 0
         if opponent_nearby:
-          features['distanceToFood'] = minDistance
+          features['distanceToOpp'] = -1000
+          features['distanceToFood'] = minDistanceFood
         else:
-          features['distanceToFood'] = 0
+          features['distanceToOpp'] = 0
     features['distanceToTeammate'] = self.distanceToTeammates(gameState, action)
     print 'Distane to Teammate: ' + str(features['distanceToTeammate'])
     return features
 
   def getWeights(self, gameState, action):
-     return {'successorScore': 100, 'distanceToFood': -10, 'distanceToTeammate': 1}
+     return {'successorScore': 100, 'distanceToFood': -10, 'distanceToTeammate': 1, 'distanceToOpp': -1}
 
   def evaluate(self, gameState, action):
    """
