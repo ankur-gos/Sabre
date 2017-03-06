@@ -99,27 +99,36 @@ class Agent(CaptureAgent):
     # Move in the direction of the nearest ghost
     opponents = self.getOpponents(successor)
     myPos = successor.getAgentState(self.index).getPosition()
-    absoluteDistances = map(lambda i: successor.getAgentPosition(i), opponents)
+    absoluteDistances = [(i, successor.getAgentPosition(i)) for i in opponents]
     for i, pos in enumerate(absoluteDistances):
-      if pos is None:
+      if pos[1] is None:
         continue
-      dist = self.getMazeDistance(myPos, pos) 
-      absoluteDistances[i] = self.getMazeDistance(myPos, pos)
-    if None in absoluteDistances:
-      indices = [i for i, item in enumerate(absoluteDistances) if item is None]
-      print len(indices)
+      # dist = self.getMazeDistance(myPos, pos[1]) 
+      absoluteDistances[i] = self.getMazeDistance(myPos, pos[1])
+    ndistances = successor.getAgentDistances()
+    print 'ndistances: ' + str(ndistances)
+    for i, tup in enumerate(absoluteDistances):
+      if not isinstance(tup, tuple):
+        continue
+      opp_ind = tup[0]
+      noisy_dist = ndistances[opp_ind]
+      # Get the last 5 observations
+      if len(gameState.observationHistory) < 6:
+        absoluteDistances[i] = float('inf')
+        continue
+      for obsi in range(-2, -7):
+        obs = gameState.observationHistory[obsi]
+        
       # For now, substituting with expected distance
-      ndistances = successor.getAgentDistances()
-      for i in indices:
-        opponenti = opponents[i]
-        noisy_dist = ndistances[opponenti]
-        expected_dist = 0
-        for dist in range(noisy_dist - 6, noisy_dist + 7):
-          prob = successor.getDistanceProb(dist, noisy_dist)
-          expected_dist += prob * dist
-        print 'Expected Dist: %d' % expected_dist
+      expected_dist = 0
+      for dist in range(noisy_dist - 6, noisy_dist + 7):
+        prob = successor.getDistanceProb(dist, noisy_dist)
+        # print 'Random: ' + str(successor.getDistanceProb(40, noisydist))
+        print 'Prob: ' + str(prob)
+        expected_dist += prob * dist
         absoluteDistances[i] = expected_dist
-    print absoluteDistances
+      print 'Action: %s, Ghost Index: %d Expected Distance: %d' % (action, i, expected_dist)
+    # print absoluteDistances
     return min(absoluteDistances)
   
   def getMinFoodDistance(self, gameState, action):
@@ -134,8 +143,8 @@ class Agent(CaptureAgent):
     successorPos = successor.getAgentState(self.index).getPosition()
     opponentPositions = [gameState.getAgentPosition(i) for i in opponents]
     opponentPositions = [(float(i[0]), float(i[1])) for i in opponentPositions if i is not None]
-    print opponentPositions
-    print successorPos
+    # print opponentPositions
+    # print successorPos
     if successorPos in opponentPositions:
       return 1
     return 0
@@ -146,7 +155,7 @@ class Agent(CaptureAgent):
     mpd = self.getMinPacmanDistance(gameState, action)
     sce = self.stateContainsEnemy(gameState, action)
     print 'Action: %s, mfd: %d, mpd: %d' % (action, mfd, mpd)
-    return mfd + 10 * mpd + 10000 * sce
+    return -10 * mpd - 10000 * sce
 
   def chooseAction(self, gameState):
     """
