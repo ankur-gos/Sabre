@@ -79,7 +79,7 @@ class Agent(CaptureAgent):
     self.display = None
 
   def isOnAttackingSide(self, gameState):
-      ''' what if both ghosts choose defense?'''
+    ''' what if both ghosts choose defense?'''
     pos = gameState.getAgentPosition(self.index)
     if self.red:
       if pos[0] > gameState.data.layout.width/2:
