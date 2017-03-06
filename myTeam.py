@@ -57,7 +57,7 @@ class Agent(CaptureAgent):
     self.index = index for this agent
     self.red = true if you're on the red team, false otherwise
     self.agentsOnTeam = a list of agent objects that make up your team
-    self.distancer = distance calculator (contest code provides this)
+    self.distance = distance calculator (contest code provides this)
     self.observationHistory = list of GameState objects that correspond
         to the sequential order of states that have occurred so far this game
     self.timeForComputing = an amount of time to give each turn for computing maze distances
@@ -77,6 +77,8 @@ class Agent(CaptureAgent):
     self.timeForComputing = timeForComputing
     # Access to the graphics
     self.display = None
+    self.currentMPD = None
+    self.currentGoal = None
 
   def isOnAttackingSide(self, gameState):
     ''' what if both ghosts choose defense?'''
@@ -90,8 +92,10 @@ class Agent(CaptureAgent):
     return False
 
   def handleDefense(self, gameState):
-    actions = [a for a in gameState.getLegalActions(self.index) if a != 'Stop']
-    a = min(gameState.getLegalActions(self.index), key=lambda action: self.getDefenseQValue(gameState, action))
+    actions = [a for a in gameState.getLegalActions(self.index)] #if a != Directions.STOP]
+    for action in gameState.getLegalActions(self.index):
+      print 'Action: %s, dqval: %f' % (action, self.getDefenseQValue(gameState, action))
+    a = max(gameState.getLegalActions(self.index), key=lambda action: self.getDefenseQValue(gameState, action))
     # print a
     return a
 
@@ -101,6 +105,11 @@ class Agent(CaptureAgent):
     opponents = self.getOpponents(successor)
     myPos = successor.getAgentState(self.index).getPosition()
     absoluteDistances = [(i, successor.getAgentPosition(i)) for i in opponents]
+    actuals = [pos for pos in absoluteDistances if pos[1] is not None]
+    if len(actuals) > 0:
+      print actuals
+      dists = [(actual, self.getMazeDistance(myPos, actual[1])) for actual in actuals]
+      return min(dists, key=lambda dist: dist[1])
     for i, pos in enumerate(absoluteDistances):
       if pos[1] is None:
         continue
@@ -114,20 +123,21 @@ class Agent(CaptureAgent):
       opp_ind = tup[0]
       noisy_dist = ndistances[opp_ind]
       # Get the last 5 observations
-      if len(gameState.observationHistory) < 6:
+      if len(self.observationHistory) < 6:
         absoluteDistances[i] = float('inf')
         continue
+      ndists = []
       for obsi in range(-2, -7):
-        obs = gameState.observationHistory[obsi]
-      # For now, substituting with expected distance
-      expected_dist = 0
-      for dist in range(noisy_dist - 6, noisy_dist + 7):
-        prob = successor.getDistanceProb(dist, noisy_dist)
-        # print 'Random: ' + str(successor.getDistanceProb(40, noisydist))
-        print 'Prob: ' + str(prob)
-        expected_dist += prob * dist
-        absoluteDistances[i] = expected_dist
-      print 'Action: %s, Ghost Index: %d Expected Distance: %d' % (action, i, expected_dist)
+        obs = self.observationHistory[obsi]
+        ndists.append(obs.getAgentDistances()[opp_ind])
+      ndists.append(noisy_dist)
+      # Find distance averaged over 5 observations and the newest one
+      avg = sum(ndists)/len(ndists) if len(ndists) > 0 else None
+      if avg is None:
+        absoluteDistances[i] = float('inf')
+        continue
+      # print 'Action: %s, Ghost Index: %d Expected Distance: %d' % (action, i, avg)
+      absoluteDistances[i] = avg
     # print absoluteDistances
     return min(absoluteDistances)
 
@@ -149,13 +159,52 @@ class Agent(CaptureAgent):
       return 1
     return 0
 
+  def getDQVal(self, gameState, action):
+    successor = self.getSuccessor(gameState, action)
+    # mfd = self.getMinFoodDistance(gameState, action)
+    mpd = self.getMinPacmanDistance(gameState, action)
+    if isinstance(mpd, tuple):
+      return mpd[1]
+    # Given a mpd
+    dqval = 0
+    currentPos = successor.getAgentPosition(self.index)
+    # print 'MPD: ' + str(mpd)
+    width = gameState.data.layout.width/2
+    height = gameState.data.layout.height
+    if mpd > 5:
+      if self.currentMPD is None:
+        self.currentMPD = mpd
+        self.currentGoal = (width - 4, height - 4)
+      else:
+        if mpd < self.currentMPD + 5:
+          pass
+        else:
+          # print 'Current Position: ' + str(currentPos)
+          positions = []
+          if mpd == float('inf'):
+            pass
+            # self.currentGoal = (width - 4, height - 4)
+          else:
+            if currentPos[1] + mpd < height - 1:
+              # print currentPos[1] + mpd
+              positions.append((currentPos[0], currentPos[1] + mpd))
+            if currentPos[1] - mpd > -1:
+              positions.append((currentPos[0], currentPos[1] - mpd))
+            if self.red:
+              positions.append((currentPos[0] + mpd, currentPos[1]))
+            else:
+              positions.append((currentPos[0] - mpd, currentPos[1]))
+            self.currentGoal = random.choice(positions)
+    # print self.currentGoal
+    dqval = self.distancer.getDistance(currentPos, self.currentGoal)
+    return dqval
 
   def getDefenseQValue(self, gameState, action):
-    mfd = self.getMinFoodDistance(gameState, action)
-    mpd = self.getMinPacmanDistance(gameState, action)
+    dqval = self.getDQVal(gameState, action)
     sce = self.stateContainsEnemy(gameState, action)
-    print 'Action: %s, mfd: %d, mpd: %d' % (action, mfd, mpd)
-    return -10 * mpd - 10000 * sce
+    if sce:
+      return float('inf')
+    return -dqval
 
   def chooseAction(self, gameState):
     """
@@ -176,37 +225,52 @@ class Agent(CaptureAgent):
     bestActions = [a for a, v in zip(actions, values) if v == maxValue]
     return random.choice(bestActions)
 
+  def distanceToTeammates(self, gameState, action):
+    successor = self.getSuccessor(gameState, action)
+    my_team = self.getTeam(gameState)
+    my_team_not_me = [i for i in my_team if i != self.index]
+    mypos = successor.getAgentState(self.index).getPosition()
+    dists = []
+    for i in my_team_not_me:
+      pos = gameState.getAgentPosition(i)
+      if pos is None:
+        continue
+      dists.append(self.getMazeDistance(mypos, pos))
+    return min(dists) if len(dists) > 0 else 0
+
   def getFeatures(self, gameState, action):
-     features = util.Counter()
-     successor = self.getSuccessor(gameState, action)
-     features['successorScore'] = self.getScore(successor)
-     opponents = self.getOpponents(successor)
-     myPos = successor.getAgentState(self.index).getPosition()
-     absoluteDistances = map(lambda i: successor.getAgentPosition(i), opponents)
-     # Compute distance to the nearest food
-     foodList = self.getFood(successor).asList()
-     if len(foodList) > 0: # This should always be True,  but better safe than sorry
-       myPos = successor.getAgentState(self.index).getPosition()
-       minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-       features['distanceToFood'] = minDistance
-       for i, pos in enumerate(absoluteDistances):
-         if pos is None:
-           continue
-         dist = self.getMazeDistance(myPos, pos)
-         absoluteDistances[i] = self.getMazeDistance(myPos, pos)
-         capList = gameState.getCapsules()
-         minDistance = min([self.getMazeDistance(myPos, cap) for cap in capList]) if len(capList) > 0 else 0
-         opponents_pos = map(lambda i: successor.getAgentPosition(i), opponents)
-         close_opponents = [opp for opp in opponents_pos if opp is not None]
-         opponent_nearby = len(close_opponents) != 0
-         if opponent_nearby:
-             features['distanceToFood'] = minDistance
-         else:
-             features['distanceToFood'] = 0
-     return features
+    features = util.Counter()
+    successor = self.getSuccessor(gameState, action)
+    features['successorScore'] = self.getScore(successor)
+    opponents = self.getOpponents(successor)
+    myPos = successor.getAgentState(self.index).getPosition()
+    absoluteDistances = map(lambda i: successor.getAgentPosition(i), opponents)
+    # Compute distance to the nearest food
+    foodList = self.getFood(successor).asList()
+    if len(foodList) > 0: # This should always be True,  but better safe than sorry
+      myPos = successor.getAgentState(self.index).getPosition()
+      minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
+      features['distanceToFood'] = minDistance
+      for i, pos in enumerate(absoluteDistances):
+        if pos is None:
+          continue
+        dist = self.getMazeDistance(myPos, pos)
+        absoluteDistances[i] = self.getMazeDistance(myPos, pos)
+        capList = gameState.getCapsules()
+        minDistance = min([self.getMazeDistance(myPos, cap) for cap in capList]) if len(capList) > 0 else 0
+        opponents_pos = map(lambda i: successor.getAgentPosition(i), opponents)
+        close_opponents = [opp for opp in opponents_pos if opp is not None]
+        opponent_nearby = len(close_opponents) != 0
+        if opponent_nearby:
+          features['distanceToFood'] = minDistance
+        else:
+          features['distanceToFood'] = 0
+    features['distanceToTeammate'] = self.distanceToTeammates(gameState, action)
+    print 'Distane to Teammate: ' + str(features['distanceToTeammate'])
+    return features
 
   def getWeights(self, gameState, action):
-     return {'successorScore': 100, 'distanceToFood': -1}
+     return {'successorScore': 100, 'distanceToFood': -10, 'distanceToTeammate': 1}
 
   def evaluate(self, gameState, action):
    """
