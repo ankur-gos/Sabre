@@ -17,7 +17,7 @@ from util import nearestPoint
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'Agent', second = 'OffensiveReflexAgent'):
+               first = 'Agent', second = 'Agent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -79,6 +79,7 @@ class Agent(CaptureAgent):
     self.display = None
 
   def isOnAttackingSide(self, gameState):
+      ''' what if both ghosts choose defense?'''
     pos = gameState.getAgentPosition(self.index)
     if self.red:
       if pos[0] > gameState.data.layout.width/2:
@@ -93,7 +94,7 @@ class Agent(CaptureAgent):
     a = min(gameState.getLegalActions(self.index), key=lambda action: self.getDefenseQValue(gameState, action))
     # print a
     return a
-  
+
   def getMinPacmanDistance(self, gameState, action):
     successor = gameState.generateSuccessor(self.index, action)
     # Move in the direction of the nearest ghost
@@ -103,7 +104,7 @@ class Agent(CaptureAgent):
     for i, pos in enumerate(absoluteDistances):
       if pos is None:
         continue
-      dist = self.getMazeDistance(myPos, pos) 
+      dist = self.getMazeDistance(myPos, pos)
       absoluteDistances[i] = self.getMazeDistance(myPos, pos)
     if None in absoluteDistances:
       indices = [i for i, item in enumerate(absoluteDistances) if item is None]
@@ -121,13 +122,13 @@ class Agent(CaptureAgent):
         absoluteDistances[i] = expected_dist
     print absoluteDistances
     return min(absoluteDistances)
-  
+
   def getMinFoodDistance(self, gameState, action):
     successor = gameState.generateSuccessor(self.index, action)
     foodList = self.getFood(successor).asList()
     myPos = successor.getAgentState(self.index).getPosition()
     return min([self.getMazeDistance(myPos, food) for food in foodList])
-  
+
   def stateContainsEnemy(self, gameState, action):
     successor = gameState.generateSuccessor(self.index, action)
     opponents = self.getOpponents(gameState)
@@ -139,14 +140,14 @@ class Agent(CaptureAgent):
     if successorPos in opponentPositions:
       return 1
     return 0
-    
-  
+
+
   def getDefenseQValue(self, gameState, action):
     mfd = self.getMinFoodDistance(gameState, action)
     mpd = self.getMinPacmanDistance(gameState, action)
     sce = self.stateContainsEnemy(gameState, action)
     print 'Action: %s, mfd: %d, mpd: %d' % (action, mfd, mpd)
-    return mfd + 10 * mpd + 10000 * sce
+    return mfd + 10 * mpd - 10000 * sce
 
   def chooseAction(self, gameState):
     """
@@ -156,11 +157,68 @@ class Agent(CaptureAgent):
       return self.handleDefense(gameState)
     actions = gameState.getLegalActions(self.index)
 
-    ''' 
+    '''
     You should change this in your own agent.
     '''
 
-    return random.choice(actions)
+    values = [self.evaluate(gameState, a) for a in actions]
+    # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
+
+    maxValue = max(values)
+    bestActions = [a for a, v in zip(actions, values) if v == maxValue]
+    return random.choice(bestActions)
+
+  def getFeatures(self, gameState, action):
+     features = util.Counter()
+     successor = self.getSuccessor(gameState, action)
+     features['successorScore'] = self.getScore(successor)
+     opponents = self.getOpponents(successor)
+     myPos = successor.getAgentState(self.index).getPosition()
+     absoluteDistances = map(lambda i: successor.getAgentPosition(i), opponents)
+     # Compute distance to the nearest food
+     foodList = self.getFood(successor).asList()
+     if len(foodList) > 0: # This should always be True,  but better safe than sorry
+       myPos = successor.getAgentState(self.index).getPosition()
+       minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
+       features['distanceToFood'] = minDistance
+       for i, pos in enumerate(absoluteDistances):
+         if pos is None:
+           continue
+         dist = self.getMazeDistance(myPos, pos)
+         absoluteDistances[i] = self.getMazeDistance(myPos, pos)
+         capList = gameState.getCapsules()
+         minDistance = min([self.getMazeDistance(myPos, cap) for cap in capList]) if len(capList) > 0 else 0
+         opponents_pos = map(lambda i: successor.getAgentPosition(i), opponents)
+         close_opponents = [opp for opp in opponents_pos if opp is not None]
+         opponent_nearby = len(close_opponents) != 0
+         if opponent_nearby:
+             features['distanceToFood'] = minDistance
+         else:
+             features['distanceToFood'] = 0
+     return features
+
+  def getWeights(self, gameState, action):
+     return {'successorScore': 100, 'distanceToFood': -1}
+
+  def evaluate(self, gameState, action):
+   """
+   Computes a linear combination of features and feature weights
+   """
+   features = self.getFeatures(gameState, action)
+   weights = self.getWeights(gameState, action)
+   return features * weights
+
+  def getSuccessor(self, gameState, action):
+     """
+     Finds the next successor which is a grid position (location tuple).
+     """
+     successor = gameState.generateSuccessor(self.index, action)
+     pos = successor.getAgentState(self.index).getPosition()
+     if pos != nearestPoint(pos):
+       # Only half a grid position was covered
+       return successor.generateSuccessor(self.index, action)
+     else:
+       return successor
 
 class ReflexCaptureAgent(CaptureAgent):
   """
@@ -224,18 +282,8 @@ class OffensiveReflexAgent(ReflexCaptureAgent):
   we give you to get an idea of what an offensive agent might look like,
   but it is by no means the best or only way to build an offensive agent.
   """
-  def getFeatures(self, gameState, action):
-    features = util.Counter()
-    successor = self.getSuccessor(gameState, action)
-    features['successorScore'] = self.getScore(successor)
 
-    # Compute distance to the nearest food
-    foodList = self.getFood(successor).asList()
-    if len(foodList) > 0: # This should always be True,  but better safe than sorry
-      myPos = successor.getAgentState(self.index).getPosition()
-      minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
-      features['distanceToFood'] = minDistance
-    return features
+
 
   def getWeights(self, gameState, action):
     return {'successorScore': 100, 'distanceToFood': -1}
@@ -251,8 +299,8 @@ class DummyAgent(CaptureAgent):
     """
     This method handles the initial setup of the
     agent to populate useful fields (such as what team
-    we're on). 
-    
+    we're on).
+
     A distanceCalculator instance caches the maze distances
     between each pair of positions, so your agents can use:
     self.distancer.getDistance(p1, p2)
@@ -260,15 +308,15 @@ class DummyAgent(CaptureAgent):
     IMPORTANT: This method may run for at most 15 seconds.
     """
 
-    ''' 
+    '''
     Make sure you do not delete the following line. If you would like to
     use Manhattan distances instead of maze distances in order to save
     on initialization time, please take a look at
-    CaptureAgent.registerInitialState in captureAgents.py. 
+    CaptureAgent.registerInitialState in captureAgents.py.
     '''
     CaptureAgent.registerInitialState(self, gameState)
 
-    ''' 
+    '''
     Your initialization code goes here, if you need any.
     '''
 
@@ -279,9 +327,8 @@ class DummyAgent(CaptureAgent):
     """
     actions = gameState.getLegalActions(self.index)
 
-    ''' 
+    '''
     You should change this in your own agent.
     '''
 
     return random.choice(actions)
-
