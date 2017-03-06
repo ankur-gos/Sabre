@@ -65,6 +65,7 @@ class Agent(CaptureAgent):
     """
     # Agent index for querying state
     self.index = index
+    self.top = None
     # Whether or not you're on the red team
     self.red = None
     # Agent objects controlling you and your teammates
@@ -161,6 +162,7 @@ class Agent(CaptureAgent):
 
   def setCurrentGoal(self, mpd, currentPos, height, width):
     positions = []
+    dx = math.sqrt(mpd/2)
     if currentPos[1] + mpd < height - 1:
       # print currentPos[1] + mpd
       positions.append((currentPos[0], currentPos[1] + mpd))
@@ -168,8 +170,12 @@ class Agent(CaptureAgent):
       positions.append((currentPos[0], currentPos[1] - mpd))
     if self.red:
       positions.append((currentPos[0] + mpd, currentPos[1]))
+      positions.append((currentPos[0] + dx, currentPos[1] + dx))
+      positions.append((currentPos[0] + dx, currentPos[1] - dx))
     else:
       positions.append((currentPos[0] - mpd, currentPos[1]))
+      positions.append((currentPos[0] - dx, currentPos[1] + dx))
+      positions.append((currentPos[0] - dx, currentPos[1] - dx))
     self.currentGoal = random.choice(positions)
 
   def getDQVal(self, gameState, action):
@@ -177,6 +183,9 @@ class Agent(CaptureAgent):
     # mfd = self.getMinFoodDistance(gameState, action)
     mpd = self.getMinPacmanDistance(gameState, action)
     if isinstance(mpd, tuple):
+      self.currentGoal = mpd[0][1]
+  
+      # print self.currentGoal
       return mpd[1]
     # Given a mpd
     dqval = 0
@@ -189,10 +198,10 @@ class Agent(CaptureAgent):
         self.currentMPD = mpd
         self.currentGoal = (width - 4, height - 4)
       else:
-        if mpd < self.currentMPD:
+        if mpd < self.currentMPD + 8:
+          self.currentMPD = mpd
           if self.currentGoal == (width - 4, height - 4):
             self.setCurrentGoal(mpd, currentPos, height, width)
-          pass
         else:
           # print 'Current Position: ' + str(currentPos)
           positions = []
@@ -200,17 +209,7 @@ class Agent(CaptureAgent):
             pass
             # self.currentGoal = (width - 4, height - 4)
           else:
-            # print 'YO'
-            if currentPos[1] + mpd < height - 1:
-              # print currentPos[1] + mpd
-              positions.append((currentPos[0], currentPos[1] + mpd))
-            if currentPos[1] - mpd > -1:
-              positions.append((currentPos[0], currentPos[1] - mpd))
-            if self.red:
-              positions.append((currentPos[0] + mpd, currentPos[1]))
-            else:
-              positions.append((currentPos[0] - mpd, currentPos[1]))
-            self.currentGoal = random.choice(positions)
+            self.setCurrentGoal(mpd, currentPos, height, width)
     # print self.currentGoal
     flag = False
     # print self.distancer._distances
@@ -295,8 +294,22 @@ class Agent(CaptureAgent):
         close_opponents = [opp for opp in opponents_pos if opp is not None]
         opponent_nearby = len(close_opponents) != 0
         if opponent_nearby:
-          features['distanceToOpp'] = -1000
-          features['distanceToFood'] = minDistanceFood
+          distances = [self.getMazeDistance(myPos, pos) for pos in close_opponents]
+          walls = successor.getWalls()
+          wall_counter = 0
+          for i in range(-1, 2):
+            for j in range(-1, 2):
+              if i == j or -j == i:
+                continue
+              if successor.hasWall(int(myPos[0] + i), int(myPos[1] + j)):
+                wall_counter += 1
+          mindist = min(distances)
+          if mindist < 4:
+            if wall_counter == 3:
+              features['wall_penalty'] = 1
+            # print wall_countexw
+            features['distanceToOpp'] = min(distances)
+            features['distanceToFood'] = 0#minDistanceFood
         else:
           features['distanceToOpp'] = 0
     features['distanceToTeammate'] = self.distanceToTeammates(gameState, action)
@@ -304,7 +317,7 @@ class Agent(CaptureAgent):
     return features
 
   def getWeights(self, gameState, action):
-     return {'successorScore': 100, 'distanceToFood': -10, 'distanceToTeammate': 1, 'distanceToOpp': -1}
+     return {'successorScore': 100000, 'distanceToFood': -10, 'distanceToTeammate': 2, 'distanceToOpp': 20, 'wall_penalty': -100000}
 
   def evaluate(self, gameState, action):
    """
