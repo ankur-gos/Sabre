@@ -262,8 +262,7 @@ class Agent(CaptureAgent):
         close_opponents = [opp for opp in opponents_pos if opp is not None]
         opponent_nearby = len(close_opponents) != 0
         if opponent_nearby:
-          features['distanceToOpp'] = -1000
-          features['distanceToFood'] = minDistanceFood
+          features['distanceToOpp'] = minDistanceFood
         else:
           features['distanceToOpp'] = 0
     features['distanceToTeammate'] = self.distanceToTeammates(gameState, action)
