@@ -7,7 +7,7 @@
 # For more info, see http://inst.eecs.berkeley.edu/~cs188/sp09/pacman.html
 
 from captureAgents import CaptureAgent
-import random, time, util
+import random, time, util, math
 from game import Directions
 import game
 from util import nearestPoint
@@ -93,8 +93,8 @@ class Agent(CaptureAgent):
 
   def handleDefense(self, gameState):
     actions = [a for a in gameState.getLegalActions(self.index)] #if a != Directions.STOP]
-    for action in gameState.getLegalActions(self.index):
-      print 'Action: %s, dqval: %f' % (action, self.getDefenseQValue(gameState, action))
+    # for action in gameState.getLegalActions(self.index):
+      # print 'Action: %s, dqval: %f' % (action, self.getDefenseQValue(gameState, action))
     a = max(gameState.getLegalActions(self.index), key=lambda action: self.getDefenseQValue(gameState, action))
     # print a
     return a
@@ -107,7 +107,7 @@ class Agent(CaptureAgent):
     absoluteDistances = [(i, successor.getAgentPosition(i)) for i in opponents]
     actuals = [pos for pos in absoluteDistances if pos[1] is not None]
     if len(actuals) > 0:
-      print actuals
+      # print actuals
       dists = [(actual, self.getMazeDistance(myPos, actual[1])) for actual in actuals]
       return min(dists, key=lambda dist: dist[1])
     for i, pos in enumerate(absoluteDistances):
@@ -116,7 +116,7 @@ class Agent(CaptureAgent):
       # dist = self.getMazeDistance(myPos, pos[1]) 
       absoluteDistances[i] = self.getMazeDistance(myPos, pos[1])
     ndistances = successor.getAgentDistances()
-    print 'ndistances: ' + str(ndistances)
+    # print 'ndistances: ' + str(ndistances)
     for i, tup in enumerate(absoluteDistances):
       if not isinstance(tup, tuple):
         continue
@@ -159,6 +159,19 @@ class Agent(CaptureAgent):
       return 1
     return 0
 
+  def setCurrentGoal(self, mpd, currentPos, height, width):
+    positions = []
+    if currentPos[1] + mpd < height - 1:
+      # print currentPos[1] + mpd
+      positions.append((currentPos[0], currentPos[1] + mpd))
+    if currentPos[1] - mpd > -1:
+      positions.append((currentPos[0], currentPos[1] - mpd))
+    if self.red:
+      positions.append((currentPos[0] + mpd, currentPos[1]))
+    else:
+      positions.append((currentPos[0] - mpd, currentPos[1]))
+    self.currentGoal = random.choice(positions)
+
   def getDQVal(self, gameState, action):
     successor = self.getSuccessor(gameState, action)
     # mfd = self.getMinFoodDistance(gameState, action)
@@ -176,7 +189,9 @@ class Agent(CaptureAgent):
         self.currentMPD = mpd
         self.currentGoal = (width - 4, height - 4)
       else:
-        if mpd < self.currentMPD + 5:
+        if mpd < self.currentMPD:
+          if self.currentGoal == (width - 4, height - 4):
+            self.setCurrentGoal(mpd, currentPos, height, width)
           pass
         else:
           # print 'Current Position: ' + str(currentPos)
@@ -185,6 +200,7 @@ class Agent(CaptureAgent):
             pass
             # self.currentGoal = (width - 4, height - 4)
           else:
+            # print 'YO'
             if currentPos[1] + mpd < height - 1:
               # print currentPos[1] + mpd
               positions.append((currentPos[0], currentPos[1] + mpd))
@@ -196,7 +212,24 @@ class Agent(CaptureAgent):
               positions.append((currentPos[0] - mpd, currentPos[1]))
             self.currentGoal = random.choice(positions)
     # print self.currentGoal
+    flag = False
+    # print self.distancer._distances
+    diff = 1
+    if self.red:
+      diff = -1
+    walls = gameState.getWalls()
+    nonwalls = []
+    for x in range(0, walls.width):
+      for y in range(0, walls.height):
+        if not gameState.hasWall(x, y):
+          nonwalls.append((x, y))
+    def distance(a, b):
+      return math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
+    self.currentGoal =  min(nonwalls, key=lambda x: distance(self.currentGoal, x))
     dqval = self.distancer.getDistance(currentPos, self.currentGoal)
+    if dqval == 0.0:
+      self.setCurrentGoal(mpd, currentPos, height, width)
+    # print self.currentGoal
     return dqval
 
   def getDefenseQValue(self, gameState, action):
@@ -266,7 +299,7 @@ class Agent(CaptureAgent):
         else:
           features['distanceToFood'] = 0
     features['distanceToTeammate'] = self.distanceToTeammates(gameState, action)
-    print 'Distane to Teammate: ' + str(features['distanceToTeammate'])
+    # print 'Distane to Teammate: ' + str(features['distanceToTeammate'])
     return features
 
   def getWeights(self, gameState, action):
