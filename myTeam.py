@@ -17,7 +17,7 @@ from util import nearestPoint
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'Agent', second = 'Agent'):
+               first = 'Agent', second = 'DAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -39,6 +39,137 @@ def createTeam(firstIndex, secondIndex, isRed,
 ##########
 # Agents #
 ##########
+
+'''
+  DAgent
+  Defensive strategy: Prioritize defending nodes
+'''
+
+class DAgent(CaptureAgent):
+  def __init__( self, index, timeForComputing = .1 ):
+    # Agent index for querying state
+    self.index = index
+    self.top = None
+    # Whether or not you're on the red team
+    self.red = None
+    # Agent objects controlling you and your teammates
+    self.agentsOnTeam = None
+    # Maze distance calculator
+    self.distancer = None
+    # A history of observations
+    self.observationHistory = []
+    # Time to spend each turn on computing maze distances
+    self.timeForComputing = timeForComputing
+    # Access to the graphics
+    self.display = None
+    self.currentGoal = None
+  
+  def getRemovedNode(self, gameState):
+    current_obs = self.getCurrentObservation()
+    previous_obs = self.getPreviousObservation()
+    if previous_obs is None:
+      return None
+    previous_food, current_food = None, None
+    if self.red:
+      previous_food = previous_obs.getRedFood().asList()
+      current_food = current_obs.getRedFood().asList()
+    else:
+      previous_food = previous_obs.getBlueFood().asList()
+      current_food = current_obs.getBlueFood().asList()
+    if len(previous_food) == len(current_food):
+      return None
+    return [food for food in previous_food if food not in current_food]
+  
+  def getFarthestFood(self, gameState):
+    current_obs = self.getCurrentObservation()
+    current_position = gameState.getAgentState(self.index).getPosition()
+    current_food = None
+    if self.red:
+      current_food = current_obs.getRedFood().asList()
+    else:
+      current_food = current_obs.getBlueFood().asList()
+    maxpos = max(current_food, key=lambda pos: self.getMazeDistance(current_position, pos))
+    if isinstance(maxpos, list):
+      maxpos = random.choice(maxpos)
+    return maxpos
+
+  def enemyInSight(self, gameState):
+    opponents = self.getOpponents(gameState)
+    opponent_positions = [gameState.getAgentPosition(i) for i in opponents if gameState.getAgentPosition(i) is not None]
+    if len(opponent_positions) == 0:
+      return None
+    width = gameState.data.layout.width/2
+    # height = gameState.data.layout.height
+    opps = None
+    if self.red:
+      opps = [opp for opp in opponent_positions if opp[0] < width]
+    else:
+      opps = [opp for opp in opponent_positions if opp[0] >= width]
+    return opps if len(opps) > 0 else None
+  
+  def estimateNextAttackNode(self, last_known_location):
+    current_obs = self.getCurrentObservation()
+    current_food = None
+    if self.red:
+      current_food = current_obs.getRedFood().asList()
+    else:
+      current_food = current_obs.getBlueFood().asList()
+    minpos = min(current_food, key=lambda pos: self.getMazeDistance(last_known_location, pos))
+    if isinstance(minpos, list):
+        minpos = random.choice(minpos)
+    return minpos
+  
+  def getActionFromMinDistance(self, gameState, goal_pos):
+    print goal_pos
+    mindist = float('inf')
+    chosenAction = None
+    for action in gameState.getLegalActions(self.index):
+      successor = self.getSuccessor(gameState, action)
+      succ_pos = successor.getAgentState(self.index).getPosition()
+      md = self.getMazeDistance(succ_pos, goal_pos)
+      print 'Action: ' + str(action) + ' md: ' + str(md)
+      if md < mindist:
+        chosenAction = action
+        mindist = md
+    return chosenAction
+
+  def chooseAction(self, gameState):
+    current_position = gameState.getAgentState(self.index).getPosition()
+    enemies_in_sight = self.enemyInSight(gameState)
+    if enemies_in_sight is not None:
+      print 'foo'
+      minpos = min(enemies_in_sight, key=lambda pos: self.getMazeDistance(current_position, pos))
+      if isinstance(minpos, list):
+        minpos = random.choice(minpos)
+      return self.getActionFromMinDistance(gameState, minpos)
+
+    enemy_locations = self.getRemovedNode(gameState)
+    if enemy_locations is not None:
+      print 'bar'
+      minpos = min(enemy_locations, key=lambda pos: self.getMazeDistance(current_position, pos))
+      if isinstance(minpos, list):
+        minpos = random.choice(minpos)
+      self.currentGoal = self.estimateNextAttackNode(minpos)
+      return self.getActionFromMinDistance(gameState, minpos)
+    
+    if self.currentGoal is None:
+      self.currentGoal = self.getFarthestFood(gameState)
+    print current_position
+    # print self.currentGoal
+    return self.getActionFromMinDistance(gameState, self.currentGoal)
+  
+  def getSuccessor(self, gameState, action):
+     """
+     Finds the next successor which is a grid position (location tuple).
+     """
+     successor = gameState.generateSuccessor(self.index, action)
+     pos = successor.getAgentState(self.index).getPosition()
+     if pos != nearestPoint(pos):
+       # Only half a grid position was covered
+       return successor.generateSuccessor(self.index, action)
+     else:
+       return successor
+    
 
 """
   Idea 1 (Rush Strat):
