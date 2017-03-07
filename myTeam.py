@@ -184,7 +184,7 @@ class Agent(CaptureAgent):
     mpd = self.getMinPacmanDistance(gameState, action)
     if isinstance(mpd, tuple):
       self.currentGoal = mpd[0][1]
-  
+
       # print self.currentGoal
       return mpd[1]
     # Given a mpd
@@ -294,9 +294,7 @@ class Agent(CaptureAgent):
         close_opponents = [opp for opp in opponents_pos if opp is not None]
         opponent_nearby = len(close_opponents) != 0
         if opponent_nearby:
-<<<<<<< HEAD
           features['distanceToOpp'] = minDistanceFood
-=======
           distances = [self.getMazeDistance(myPos, pos) for pos in close_opponents]
           walls = successor.getWalls()
           wall_counter = 0
@@ -313,7 +311,6 @@ class Agent(CaptureAgent):
             # print wall_countexw
             features['distanceToOpp'] = min(distances)
             features['distanceToFood'] = 0#minDistanceFood
->>>>>>> f2acf1890eaea34cc19c8a66bdb939d2c12a02d8
         else:
           features['distanceToOpp'] = 0
     features['distanceToTeammate'] = self.distanceToTeammates(gameState, action)
