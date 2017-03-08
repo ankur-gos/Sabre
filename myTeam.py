@@ -133,7 +133,6 @@ class OAgent(CaptureAgent):
       return None
     elif not self.red and current_position[0] >= width:
       return None
-    print 'DERP'
     opponent_positions = [gameState.getAgentPosition(i) for i in opponents if gameState.getAgentPosition(i) is not None]
     if len(opponent_positions) == 0:
       return None
