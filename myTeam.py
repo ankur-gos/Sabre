@@ -80,25 +80,27 @@ class DAgent(CaptureAgent):
       return None
     return [food for food in previous_food if food not in current_food]
 
-  def CapsuleTriggered(self, gameState):
+  def capsuleTriggered(self, gameState):
     history = [self.observationHistory[i] for i in range(-40, 0) if len(self.observationHistory) >= 40]
     current_obs = self.getCurrentObservation()
     enemy = self.enemyInSight(gameState)
+    if enemy is None:
+        return None
     triggered = False
     if history > 0:
         for hist in history:
             if self.red:
-                hist_capList = hist.getRedCapsules().asList()
-                curr_capList = current_obs.getRedCapsules().asList()
+                hist_capList = hist.getRedCapsules()
+                curr_capList = current_obs.getRedCapsules()
             else:
-                hist_capList = hist.getBlueCapsules().asList()
-                curr_capList = current_obs.getBlueCapsules().asList()
+                hist_capList = hist.getBlueCapsules()
+                curr_capList = current_obs.getBlueCapsules()
             if  len(hist_capList) == len(curr_capList):
               continue
             else:
                 triggered = True
     if triggered:
-        return self.getActionFromMaxDistance(gameState,enemy)
+        return self.getActionFromMaxDistance(gameState,enemy[0])
     else:
         return None
 
@@ -172,6 +174,9 @@ class DAgent(CaptureAgent):
 
   def chooseAction(self, gameState):
     current_position = gameState.getAgentState(self.index).getPosition()
+    capsuleTriggered = self.capsuleTriggered(gameState)
+    if capsuleTriggered is not None:
+        return capsuleTriggered
     enemies_in_sight = self.enemyInSight(gameState)
     if enemies_in_sight is not None:
       print 'foo'
@@ -188,12 +193,32 @@ class DAgent(CaptureAgent):
         minpos = random.choice(minpos)
       self.currentGoal = self.estimateNextAttackNode(minpos)
       return self.getActionFromMinDistance(gameState, minpos)
-
+    if current_position == self.currentGoal:
+        self.currentGoal = self.patrol(gameState)
     if self.currentGoal is None:
-      self.currentGoal = (30,12)#self.getFarthestFood(gameState)
+      self.currentGoal = self.getFarthestFood(gameState)
     print current_position
     # print self.currentGoal
     return self.getActionFromMinDistance(gameState, self.currentGoal)
+
+  def patrol(self, gameState):
+      foodList = self.getFoodYouAreDefending(gameState).asList()
+
+      closest_food = None
+      pos = gameState.getAgentPosition(self.index)
+      midDist = gameState.data.layout.width/2
+      minDist1 = float("-inf")
+      minDist2 = float("inf")
+      for food in foodList:
+          if self.red:
+              if food[0] > minDist1:
+                  minDist1 = food[0]
+                  closest_food = food
+          else:
+              if food[0] < minDist2:
+                  minDist2 = food[0]
+                  closest_food = food
+      return closest_food
 
   def getSuccessor(self, gameState, action):
      """
