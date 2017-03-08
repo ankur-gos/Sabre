@@ -17,7 +17,7 @@ from util import nearestPoint
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'Agent', second = 'DAgent'):
+               first = 'OAgent', second = 'DAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -44,6 +44,185 @@ def createTeam(firstIndex, secondIndex, isRed,
   DAgent
   Defensive strategy: Prioritize defending nodes
 '''
+
+
+
+class OAgent(CaptureAgent):
+  def __init__( self, index, timeForComputing = .1 ):
+    # Agent index for querying state
+    self.index = index
+    self.top = None
+    # Whether or not you're on the red team
+    self.red = None
+    # Agent objects controlling you and your teammates
+    self.agentsOnTeam = None
+    # Maze distance calculator
+    self.distancer = None
+    # A history of observations
+    self.observationHistory = []
+    # Time to spend each turn on computing maze distances
+    self.timeForComputing = timeForComputing
+    # Access to the graphics
+    self.display = None
+    self.currentGoal = None
+    self.retreatNodes = []
+    self.capsuleLocations = []
+    self.lastRetreat = None
+    self.midpoint = None
+    self.touched = 0
+  
+  def getActionFromMinDistance(self, gameState, goal_pos):
+    mindist = float('inf')
+    chosen_action = None
+    for action in gameState.getLegalActions(self.index):
+      successor = self.getSuccessor(gameState, action)
+      succ_pos = successor.getAgentState(self.index).getPosition()
+      md = self.getMazeDistance(succ_pos, goal_pos)
+      if md < mindist:
+        chosen_action = action
+        mindist = md
+    return chosen_action
+  
+  def getInitialGoal(self, gameState):
+    food = self.getFood(gameState).asList()
+    width = gameState.data.layout.width / 4
+    height = gameState.data.layout.height / 2
+    # Set retreatNodes
+    pos1, pos2, pos3 = None, None, None
+    if self.red:
+      pos1 = (2*width-2, 2*height-2)
+      while gameState.hasWall(pos1[0], pos1[1]):
+        pos1 = (pos1[0], pos1[1]-1)
+      pos2 = (2*width-2, 2)
+      while gameState.hasWall(pos2[0], pos2[1]):
+        pos2 = (pos2[0], pos2[1]+1)
+      pos3 = (2*width-2, height)
+      while gameState.hasWall(pos3[0], pos3[1]):
+        pos3 = (pos3[0]. pos3[1]+1)
+    else:
+      pos1 = (2*width+2, 2*height-2)
+      while gameState.hasWall(pos1[0], pos1[1]):
+        pos1 = (pos1[0], pos1[1]-1)
+      pos2 = (2*width+2, 2)
+      while gameState.hasWall(pos2[0], pos2[1]):
+        pos2 = (pos2[0], pos2[1]+1)
+      pos3 = (2*width+2, height)
+      while gameState.hasWall(pos3[0], pos3[1]):
+        pos3 = (pos3[0]. pos3[1]+1)
+    self.midpoint = pos3
+    self.retreatNodes.append(pos1)
+    self.retreatNodes.append(pos2)
+    quadrant_food = [f for f in food if f[0] <= 3 * width and f[1] >= height]
+    if len(quadrant_food) == 0:
+      quadrant_food = [f for f in food if f[0] <= 3 * width and f[1] >= height]
+    if len(quadrant_food) == 0:
+      return food[0]
+    ret_food = None
+    if self.red:
+      ret_food = max(quadrant_food, key=lambda f: f[1])
+    ret_food = min(quadrant_food, key=lambda f: f[1])
+    if isinstance(ret_food, list):
+      return random.choice(ret_food)
+    return ret_food
+  
+  def enemyInSight(self, gameState):
+    opponents = self.getOpponents(gameState)
+    width = gameState.data.layout.width/2
+    current_position = gameState.getAgentPosition(self.index)
+    if self.red and current_position[0] < width:
+      return None
+    elif not self.red and current_position[0] >= width:
+      return None
+    print 'DERP'
+    opponent_positions = [gameState.getAgentPosition(i) for i in opponents if gameState.getAgentPosition(i) is not None]
+    if len(opponent_positions) == 0:
+      return None
+    # height = gameState.data.layout.height
+    opps = None
+    if self.red:
+      opps = [opp for opp in opponent_positions if opp[0] >= width]
+    else:
+      opps = [opp for opp in opponent_positions if opp[0] < width]
+    return opps if len(opps) > 0 else None
+  
+  def run(self, gameState, current_position, enemy_pos):
+    addCapsules = self.getCapsules(gameState) + self.retreatNodes
+    if self.currentGoal not in addCapsules:
+      print addCapsules
+      retreat = min(addCapsules, key=lambda n: self.getMazeDistance(n, current_position))
+      print retreat
+      if isinstance(retreat, list):
+        retreat = retreat[0]
+      self.currentGoal = retreat
+    retreatDistance = self.getMazeDistance(self.currentGoal, current_position)
+    qval = float('inf')
+    return_action = None
+    self.touches = 0
+    for action in gameState.getLegalActions(self.index):
+      if action == Directions.STOP:
+        continue
+      successor = self.getSuccessor(gameState, action)
+      succ_pos = successor.getAgentState(self.index).getPosition()
+      dist = self.getMazeDistance(succ_pos, enemy_pos)
+      enemy_there = 1 if enemy_pos == current_position else 0
+      qvalp = -10 * dist + retreatDistance + 100000*enemy_there
+      print 'Action: ' + str(action) + ' qvalp: ' + str(qvalp)
+      if qvalp < qval:
+        qval = qvalp
+        return_action = action
+    return return_action
+  
+  def fetchNextGoal(self, gameState, current_position):
+    if current_position in self.retreatNodes:
+      self.lastRetreat = current_position
+      if self.touched == 0:
+        self.touched = 1
+        return self.midpoint
+    if current_position == self.midpoint:
+      for retreat in self.retreatNodes:
+        if retreat != self.lastRetreat:
+          return retreat
+    # Find the nearest food and set it as the goal
+    foods = self.getFood(gameState).asList()
+  #  print current_position
+  #   print foods
+    min_food = min(foods, key=lambda f: self.getMazeDistance(current_position, f))
+    self.touched = 0
+    if isinstance(min_food, list):
+      return min_food[0]
+    return min_food
+
+  # def current_goal_in_territory
+  
+  def chooseAction(self, gameState):
+    if self.currentGoal is None:
+      self.currentGoal = self.getInitialGoal(gameState)
+    current_position = gameState.getAgentState(self.index).getPosition()
+    enemies_in_sight = self.enemyInSight(gameState)
+    if enemies_in_sight is not None:
+      min_enemy_pos = min(enemies_in_sight, key=lambda e: self.getMazeDistance(e, current_position))
+      if isinstance(min_enemy_pos, list):
+        min_enemy_pos = min_enemy_pos[0]
+      if self.getMazeDistance(current_position, min_enemy_pos) <= 4:
+        return self.run(gameState, current_position, min_enemy_pos)
+    if current_position == gameState.getInitialAgentPosition(self.index):
+      self.currentGoal = self.fetchNextGoal(gameState, current_position)
+    if current_position == self.currentGoal:
+      self.currentGoal = self.fetchNextGoal(gameState, current_position)
+    return self.getActionFromMinDistance(gameState, self.currentGoal)
+
+  def getSuccessor(self, gameState, action):
+     """
+     Finds the next successor which is a grid position (location tuple).
+     """
+     successor = gameState.generateSuccessor(self.index, action)
+     pos = successor.getAgentState(self.index).getPosition()
+     if pos != nearestPoint(pos):
+       # Only half a grid position was covered
+       return successor.generateSuccessor(self.index, action)
+     else:
+       return successor
+
 
 class DAgent(CaptureAgent):
   def __init__( self, index, timeForComputing = .1 ):
@@ -120,24 +299,21 @@ class DAgent(CaptureAgent):
     return minpos
   
   def getActionFromMinDistance(self, gameState, goal_pos):
-    print goal_pos
     mindist = float('inf')
-    chosenAction = None
+    chosen_action = None
     for action in gameState.getLegalActions(self.index):
       successor = self.getSuccessor(gameState, action)
       succ_pos = successor.getAgentState(self.index).getPosition()
       md = self.getMazeDistance(succ_pos, goal_pos)
-      print 'Action: ' + str(action) + ' md: ' + str(md)
       if md < mindist:
-        chosenAction = action
+        chosen_action = action
         mindist = md
-    return chosenAction
+    return chosen_action
 
   def chooseAction(self, gameState):
     current_position = gameState.getAgentState(self.index).getPosition()
     enemies_in_sight = self.enemyInSight(gameState)
     if enemies_in_sight is not None:
-      print 'foo'
       minpos = min(enemies_in_sight, key=lambda pos: self.getMazeDistance(current_position, pos))
       if isinstance(minpos, list):
         minpos = random.choice(minpos)
@@ -145,7 +321,6 @@ class DAgent(CaptureAgent):
 
     enemy_locations = self.getRemovedNode(gameState)
     if enemy_locations is not None:
-      print 'bar'
       minpos = min(enemy_locations, key=lambda pos: self.getMazeDistance(current_position, pos))
       if isinstance(minpos, list):
         minpos = random.choice(minpos)
@@ -154,7 +329,6 @@ class DAgent(CaptureAgent):
     
     if self.currentGoal is None:
       self.currentGoal = self.getFarthestFood(gameState)
-    print current_position
     # print self.currentGoal
     return self.getActionFromMinDistance(gameState, self.currentGoal)
   
