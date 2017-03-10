@@ -96,9 +96,9 @@ class OAgent(CaptureAgent):
       pos2 = (2*width-2, 2)
       while gameState.hasWall(pos2[0], pos2[1]):
         pos2 = (pos2[0], pos2[1]+1)
-      pos3 = (2*width-2, height)
+      pos3 = (2*width-2, height-1)
       while gameState.hasWall(pos3[0], pos3[1]):
-        pos3 = (pos3[0]. pos3[1]+1)
+        pos3 = (pos3[0], pos3[1]+1)
     else:
       pos1 = (2*width+2, 2*height-2)
       while gameState.hasWall(pos1[0], pos1[1]):
@@ -106,7 +106,7 @@ class OAgent(CaptureAgent):
       pos2 = (2*width+2, 2)
       while gameState.hasWall(pos2[0], pos2[1]):
         pos2 = (pos2[0], pos2[1]+1)
-      pos3 = (2*width+2, height)
+      pos3 = (2*width+2, height-1)
       while gameState.hasWall(pos3[0], pos3[1]):
         pos3 = (pos3[0], pos3[1]+1)
     self.midpoint = pos3
@@ -392,7 +392,7 @@ class DAgent(CaptureAgent):
     if self.red:
       for ind, hasWall in enumerate(mincol):
         if not hasWall:
-          chokePoints.append((width-1-minind, ind+10))
+          chokePoints.append((width-1-minind, ind))
     else:
       for ind, hasWall in enumerate(mincol):
         if not hasWall:
