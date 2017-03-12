@@ -70,7 +70,7 @@ class OAgent(CaptureAgent):
     self.lastRetreat = None
     self.midpoint = None
     self.touched = 0
-  
+
   def getActionFromMinDistance(self, gameState, goal_pos):
     mindist = float('inf')
     chosen_action = None
@@ -82,7 +82,7 @@ class OAgent(CaptureAgent):
         chosen_action = action
         mindist = md
     return chosen_action
-  
+
   def getInitialGoal(self, gameState):
     food = self.getFood(gameState).asList()
     width = gameState.data.layout.width / 4
@@ -124,7 +124,7 @@ class OAgent(CaptureAgent):
     if isinstance(ret_food, list):
       return random.choice(ret_food)
     return ret_food
-  
+
   def enemyInSight(self, gameState):
     opponents = self.getOpponents(gameState)
     width = gameState.data.layout.width/2
@@ -143,7 +143,32 @@ class OAgent(CaptureAgent):
     else:
       opps = [opp for opp in opponent_positions if opp[0] < width]
     return opps if len(opps) > 0 else None
-  
+
+  def capsuleTriggered(self, gameState):
+    history = [self.observationHistory[i] for i in range(-40, 0) if len(self.observationHistory) >= 40]
+    current_obs = self.getCurrentObservation()
+    enemy = self.enemyInSight(gameState)
+    triggered = False
+    if enemy is None:
+        return None
+
+    if history > 0:
+        for hist in history:
+            if self.red:
+                hist_capList = hist.getBlueCapsules()
+                curr_capList = current_obs.getBlueCapsules()
+            else:
+                hist_capList = hist.getRedCapsules()
+                curr_capList = current_obs.getRedCapsules()
+            if  len(hist_capList) == len(curr_capList):
+              continue
+            else:
+                triggered = True
+    if triggered:
+        return self.getActionFromMinDistance(gameState,enemy[0])
+    else:
+        return None
+
   def run(self, gameState, current_position, enemy_pos):
     addCapsules = self.getCapsules(gameState) + self.retreatNodes
     if self.currentGoal not in addCapsules:
@@ -170,7 +195,7 @@ class OAgent(CaptureAgent):
         qval = qvalp
         return_action = action
     return return_action
-  
+
   def fetchNextGoal(self, gameState, current_position):
     if current_position in self.retreatNodes:
       self.lastRetreat = current_position
@@ -192,16 +217,25 @@ class OAgent(CaptureAgent):
     return min_food
 
   # def current_goal_in_territory
-  
+
   def chooseAction(self, gameState):
     if self.currentGoal is None:
       self.currentGoal = self.getInitialGoal(gameState)
+    capsuleTriggered = self.capsuleTriggered(gameState)
     current_position = gameState.getAgentState(self.index).getPosition()
     enemies_in_sight = self.enemyInSight(gameState)
     if enemies_in_sight is not None:
       min_enemy_pos = min(enemies_in_sight, key=lambda e: self.getMazeDistance(e, current_position))
       if isinstance(min_enemy_pos, list):
         min_enemy_pos = min_enemy_pos[0]
+      if capsuleTriggered is not None:
+          triggered = True
+          for enemy in enemies_in_sight:
+              if self.getMazeDistance(current_position, enemy) == 0:
+                  print"here"
+                  triggered = False
+          if triggered:
+              return capsuleTriggered
       if self.getMazeDistance(current_position, min_enemy_pos) <= 2:
         return self.run(gameState, current_position, min_enemy_pos)
     if current_position == gameState.getInitialAgentPosition(self.index):
