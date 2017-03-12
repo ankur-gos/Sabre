@@ -165,9 +165,9 @@ class OAgent(CaptureAgent):
             else:
                 triggered = True
     if triggered:
-        return self.getActionFromMinDistance(gameState,enemy[0])
+        return True
     else:
-        return None
+        return False
 
   def run(self, gameState, current_position, enemy_pos):
     addCapsules = self.getCapsules(gameState) + self.retreatNodes
@@ -223,16 +223,9 @@ class OAgent(CaptureAgent):
       min_enemy_pos = min(enemies_in_sight, key=lambda e: self.getMazeDistance(e, current_position))
       if isinstance(min_enemy_pos, list):
         min_enemy_pos = min_enemy_pos[0]
-      if capsuleTriggered is not None:
-          triggered = True
-          for enemy in enemies_in_sight:
-              if self.getMazeDistance(current_position, enemy) == 0:
-                  print"here"
-                  triggered = False
-          if triggered:
-              return capsuleTriggered
-      if self.getMazeDistance(current_position, min_enemy_pos) <= 2:
-        return self.run(gameState, current_position, min_enemy_pos)
+      if not capsuleTriggered:
+          if self.getMazeDistance(current_position, min_enemy_pos) <= 2:
+              return self.run(gameState, current_position, min_enemy_pos)
     if current_position == gameState.getInitialAgentPosition(self.index):
       self.currentGoal = self.fetchNextGoal(gameState, current_position)
     if current_position == self.currentGoal:
@@ -432,7 +425,7 @@ class DAgent(CaptureAgent):
         if not hasWall:
           chokePoints.append((float(width+minind), float(ind)))
     self.chokePoints = chokePoints
-    
+
 
   def patrol(self, gameState):
     foodList = self.getFoodYouAreDefending(gameState).asList()
