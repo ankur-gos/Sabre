@@ -17,7 +17,7 @@ from util import nearestPoint
 #################
 
 def createTeam(firstIndex, secondIndex, isRed,
-               first = 'OAgent', second = 'DAgent'):
+               first = 'CombinationAgent', second = 'CombinationAgent'):
   """
   This function should return a list of two agents that will form the
   team, initialized using firstIndex and secondIndex as their agent
@@ -34,19 +34,22 @@ def createTeam(firstIndex, secondIndex, isRed,
   """
 
   # The following line is an example only; feel free to change it.
-  return [eval(first)(firstIndex), eval(second)(secondIndex)]
+  return [eval(first)(firstIndex, True), eval(second)(secondIndex, False)]
 
 ##########
 # Agents #
 ##########
+
+topQuadrant = None
 
 '''
   Combination Agent
   A combination of offensive and defensive agent that picks goals
 '''
 class CombinationAgent(CaptureAgent):
-  def __init__( self, index, timeForComputing = .1 ):
+  def __init__( self, index, topQuadrant, timeForComputing = .1 ):
     # Agent index for querying state
+    self.topQuadrant = topQuadrant
     self.index = index
     self.top = None
     # Whether or not you're on the red team
@@ -85,7 +88,41 @@ class CombinationAgent(CaptureAgent):
         chosen_action = action
         mindist = md
     return chosen_action
+
+  '''
+    getActionFromMaxDistance
+    Same as above, except maximize distance
+  '''
+  def getActionFromMaxDistance(self, gameState, goal_pos):
+    maxdist = float('-inf')
+    chosenAction = None
+    for action in gameState.getLegalActions(self.index):
+        successor = self.getSuccessor(gameState, action)
+        succ_pos = successor.getAgentState(self.index).getPosition()
+        md = self.getMazeDistance(succ_pos, goal_pos)
+        if md > maxdist:
+            chosenAction = action
+            maxdist = md
+    return chosenAction
   
+  '''
+    defensiveEnemyInSight
+    enemyInSight but the defensive version
+  '''
+  def defensiveEnemyInSight(self, gameState):
+    opponents = self.getOpponents(gameState)
+    opponent_positions = [gameState.getAgentPosition(i) for i in opponents if gameState.getAgentPosition(i) is not None]
+    if len(opponent_positions) == 0:
+      return None
+    width = gameState.data.layout.width/2
+    # height = gameState.data.layout.height
+    opps = None
+    if self.red:
+      opps = [opp for opp in opponent_positions if opp[0] < width]
+    else:
+      opps = [opp for opp in opponent_positions if opp[0] >= width]
+    return opps if len(opps) > 0 else None
+
   '''
     enemyInSight
     Return locations of all enemies in sight, or None if no enemies in sight
@@ -144,24 +181,19 @@ class CombinationAgent(CaptureAgent):
     Run away from enemy
   '''
   def run(self, gameState, current_position, enemy_pos):
-    addCapsules = self.getCapsules(gameState) + self.retreatNodes
-    if self.currentGoal not in addCapsules:
-      retreat = min(addCapsules, key=lambda n: self.getMazeDistance(n, current_position))
-      if isinstance(retreat, list):
-        retreat = retreat[0]
-      self.currentGoal = retreat
-    retreatDistance = self.getMazeDistance(self.currentGoal, current_position)
+    dist = self.getMazeDistance(self.currentGoal, current_position)
     qval = float('inf')
     return_action = None
-    self.touches = 0
     for action in gameState.getLegalActions(self.index):
       if action == Directions.STOP:
         continue
       successor = self.getSuccessor(gameState, action)
       succ_pos = successor.getAgentState(self.index).getPosition()
-      dist = self.getMazeDistance(succ_pos, enemy_pos)
+      hasFood = 1 if gameState.hasFood(int(succ_pos[0]), int(succ_pos[1])) else 0
       enemy_there = 1 if enemy_pos == current_position else 0
-      qvalp = -10 * dist + retreatDistance + 100000*enemy_there
+      hasCapsule = 1 if succ_pos in self.getCapsules(gameState) else 0
+      edist = self.getMazeDistance(succ_pos, enemy_pos)
+      qvalp = -10 * dist + -1000 * hasFood + 100000 * enemy_there + -2000 * hasCapsule + -100*edist
       if qvalp < qval:
         qval = qvalp
         return_action = action
@@ -172,38 +204,221 @@ class CombinationAgent(CaptureAgent):
     Gets the next food and sets it as the goal
   '''
   def fetchNextGoal(self, gameState, current_position):
-    if current_position in self.retreatNodes:
-      self.lastRetreat = current_position
-      if self.touched == 0:
-        self.touched = 1
-        return self.midpoint
-    if current_position == self.midpoint:
-      for retreat in self.retreatNodes:
-        if retreat != self.lastRetreat:
-          return retreat
     # Find the nearest food and set it as the goal
     foods = self.getFood(gameState).asList()
+    sortedFoods = sorted(foods, key=lambda f: f[1])
+    if self.isPartnerOnAttack(gameState):
+      if self.topQuadrant:
+        foods = sortedFoods[int(len(foods)/2):]
+      else:
+        foods = sortedFoods[:int(len(foods)/2)]
+    # Also want the capsule, get it
+    foods += self.getCapsules(gameState)
     min_food = min(foods, key=lambda f: self.getMazeDistance(current_position, f))
     self.touched = 0
     if isinstance(min_food, list):
       return min_food[0]
     return min_food
 
+  '''
+    getRemovedNode
+    Get the last eaten food to get pretty much where their offensive agent is on the map
+  '''
+  def getRemovedNode(self, gameState):
+    current_obs = self.getCurrentObservation()
+    previous_obs = self.getPreviousObservation()
+    if previous_obs is None:
+      return None
+    previous_food, current_food = None, None
+    if self.red:
+      previous_food = previous_obs.getRedFood().asList()
+      current_food = current_obs.getRedFood().asList()
+    else:
+      previous_food = previous_obs.getBlueFood().asList()
+      current_food = current_obs.getBlueFood().asList()
+    if len(previous_food) == len(current_food):
+      return None
+    return [food for food in previous_food if food not in current_food]
+  
+  '''
+    estimateNextAttackNode
+    Given a last known eaten location, determine the next food their offensive agent
+    will probably eat
+  '''
+  def estimateNextAttackNode(self, last_known_location):
+    current_obs = self.getCurrentObservation()
+    current_food = None
+    if self.red:
+      current_food = current_obs.getRedFood().asList()
+    else:
+      current_food = current_obs.getBlueFood().asList()
+    minpos = min(current_food, key=lambda pos: self.getMazeDistance(last_known_location, pos))
+    if isinstance(minpos, list):
+        minpos = random.choice(minpos)
+    return minpos
+
+  '''
+    pickChoke
+    pick a random choke point
+  '''
+  def pickChoke(self):
+    self.topQuadrant = not self.topQuadrant
+    if self.topQuadrant:
+      return max(self.chokePoints, key=lambda ch: ch[1] - random.choice(range(0, 3)))
+    return min(self.chokePoints, key=lambda ch: ch[0] + random.choice(range(0, 3)))
+
+  '''
+    addChokes
+    Determine the choke points to rush
+    This is buggy
+  '''
+  def addChokes(self, gameState):
+    walls = gameState.getWalls()
+    width = gameState.data.layout.width / 2
+    columns = []
+    for i in range(0, 3):
+      if self.red:
+        columns.append(walls[width+i+1])
+      else:
+        columns.append(walls[width-i])
+    minind, mincount, mincol = None, float('inf'), None
+    for ind, col in enumerate(columns):
+      count = col.count(False)
+      if count < mincount:
+        mincount = count
+        minind = ind
+        mincol = col
+    chokePoints = []
+    if self.red:
+      for ind, hasWall in enumerate(mincol):
+        if not hasWall:
+          chokePoints.append((width+minind+1, ind))
+    else:
+      for ind, hasWall in enumerate(mincol):
+        if not hasWall:
+          chokePoints.append((float(width-minind), ind))
+    self.chokePoints = chokePoints
+
+  '''
+    didRespawn
+    Returns whether the agent just spawned
+  '''
+  def didRespawn(self, gameState, current_position):
+    return current_position == gameState.getInitialAgentPosition(self.index)
+
+  '''
+    isOnAttackingSide
+    Which side the current agent is on
+  '''
+  def isOnAttackingSide(self, gameState):
+    pos = gameState.getAgentPosition(self.index)
+    if self.red:
+      if pos[0] > gameState.data.layout.width/2:
+        return True
+    else:
+      if pos[0] <= gameState.data.layout.width/2:
+        return True
+    return False
+
+  def isPartnerOnAttack(self, gameState):
+    team = self.getTeam(gameState)
+    team = [t for t in team if t != self.index]
+    for t in team:
+      pos = gameState.getAgentPosition(t)
+      if self.red:
+        if pos[0] > gameState.data.layout.width/2:
+          return True
+      else:
+        if pos[0] <= gameState.data.layout.width/2:
+          return True
+      return False
+
+  '''
+    isOnFirstQuarterDefense
+    Are you in the first quadrant? Then you're on defense and should hunt
+    their pacman
+  '''
+  def isOnFirstQuarterDefense(self, gameState):
+    pos = gameState.getAgentPosition(self.index)
+    if self.red:
+      if pos[0] <= gameState.data.layout.width/4:
+        return True
+    else:
+      if pos[0] >= 3*gameState.data.layout.width/4:
+        return True
+    return False
+
+  def defensiveCapsuleTriggered(self, gameState):
+    history = [self.observationHistory[i] for i in range(-40, 0) if len(self.observationHistory) >= 40]
+    current_obs = self.getCurrentObservation()
+    enemy = self.enemyInSight(gameState)
+    if enemy is None:
+        return None
+    triggered = False
+    if history > 0:
+        for hist in history:
+            if self.red:
+                hist_capList = hist.getRedCapsules()
+                curr_capList = current_obs.getRedCapsules()
+            else:
+                hist_capList = hist.getBlueCapsules()
+                curr_capList = current_obs.getBlueCapsules()
+            if  len(hist_capList) == len(curr_capList):
+              continue
+            else:
+                triggered = True
+    if triggered:
+        return self.getActionFromMaxDistance(gameState,enemy[0])
+    else:
+        return None
+
   def chooseAction(self, gameState):
-    if self.currentGoal is None:
-      self.currentGoal = self.getInitialGoal(gameState)
-    capsuleTriggered = self.capsuleTriggered(gameState)
     current_position = gameState.getAgentState(self.index).getPosition()
+    defensive_enemies_in_sight = self.defensiveEnemyInSight(gameState)
     enemies_in_sight = self.enemyInSight(gameState)
+    capsuleTriggered = self.capsuleTriggered(gameState)
+    defensive_triggered = self.defensiveCapsuleTriggered(gameState)
+    enemy_location_from_food = self.getRemovedNode(gameState)
+    didRespawn = self.didRespawn(gameState, current_position)
+    onQuarterDefense = self.isOnFirstQuarterDefense(gameState)
+    onDefense = not self.isOnAttackingSide(gameState)
+    # Just some startup
+    if self.currentGoal is None:
+      self.addChokes(gameState)
+    '''
+      If you're on defense, and there is an enemy in sight
+      kill it, but don't replace the goal
+    '''
+    if onDefense:
+      if defensive_triggered is not None:
+        return defensive_triggered
+      if enemies_in_sight is not None:
+        minpos = min(enemies_in_sight, key=lambda pos: self.getMazeDistance(current_position, pos))
+        if isinstance(minpos, list):
+          minpos = random.choice(minpos)
+        return self.getActionFromMinDistance(gameState, minpos)
+      # If we reached our goal, we're gonna pick a choke to rush
+      if current_position == self.currentGoal or self.currentGoal is None:
+        self.currentGoal = self.pickChoke()
+    if onQuarterDefense:
+      if enemy_location_from_food is not None:
+        minpos = min(enemy_location_from_food, key=lambda pos: self.getMazeDistance(current_position, pos))
+        if isinstance(minpos, list):
+          minpos = random.choice(minpos)
+        self.currentGoal = self.estimateNextAttackNode(minpos)
+      return self.getActionFromMinDistance(gameState, self.currentGoal)
+
+    # Rush that choke no matter what
+    if self.currentGoal in self.chokePoints and current_position != self.currentGoal:
+      return self.getActionFromMinDistance(gameState, self.currentGoal)
+
     if enemies_in_sight is not None:
       min_enemy_pos = min(enemies_in_sight, key=lambda e: self.getMazeDistance(e, current_position))
       if isinstance(min_enemy_pos, list):
         min_enemy_pos = min_enemy_pos[0]
       if not capsuleTriggered:
-          if self.getMazeDistance(current_position, min_enemy_pos) <= 2:
+          if self.getMazeDistance(current_position, min_enemy_pos) <= 4:
               return self.run(gameState, current_position, min_enemy_pos)
-    if current_position == gameState.getInitialAgentPosition(self.index):
-      self.currentGoal = self.fetchNextGoal(gameState, current_position)
     if current_position == self.currentGoal:
       self.currentGoal = self.fetchNextGoal(gameState, current_position)
     return self.getActionFromMinDistance(gameState, self.currentGoal)
@@ -219,6 +434,10 @@ class CombinationAgent(CaptureAgent):
        return successor.generateSuccessor(self.index, action)
      else:
        return successor
+
+#########################
+# DEPRECATED AGENT CODE #
+#########################
 
 '''
   DAgent
