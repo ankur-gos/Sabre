@@ -41,6 +41,132 @@ def createTeam(firstIndex, secondIndex, isRed,
 ##########
 
 '''
+  Combination Agent
+  A combination of offensive and defensive agent that picks goals
+'''
+class CombinationAgent(CaptureAgent):
+  def __init__( self, index, timeForComputing = .1 ):
+    # Agent index for querying state
+    self.index = index
+    self.top = None
+    # Whether or not you're on the red team
+    self.red = None
+    # Agent objects controlling you and your teammates
+    self.agentsOnTeam = None
+    # Maze distance calculator
+    self.distancer = None
+    # A history of observations
+    self.observationHistory = []
+    # Time to spend each turn on computing maze distances
+    self.timeForComputing = timeForComputing
+    # Access to the graphics
+    self.display = None
+    self.currentGoal = None
+    self.retreatNodes = []
+    self.capsuleLocations = []
+    self.lastRetreat = None
+    self.midpoint = None
+    self.touched = 0
+
+  '''
+    getActionFromMinDistance
+    Given a goal position, return the action that shortens the distance to
+    that goal position
+  '''
+  def getActionFromMinDistance(self, gameState, goal_pos):
+    mindist = float('inf')
+    chosen_action = None
+    for action in gameState.getLegalActions(self.index):
+      successor = self.getSuccessor(gameState, action)
+      succ_pos = successor.getAgentState(self.index).getPosition()
+      md = self.getMazeDistance(succ_pos, goal_pos)
+      if md < mindist:
+        chosen_action = action
+        mindist = md
+    return chosen_action
+  
+  '''
+    enemyInSight
+    Return locations of all enemies in sight, or None if no enemies in sight
+  '''
+  def enemyInSight(self, gameState):
+    opponents = self.getOpponents(gameState)
+    width = gameState.data.layout.width/2
+    current_position = gameState.getAgentPosition(self.index)
+    if self.red and current_position[0] < width:
+      return None
+    elif not self.red and current_position[0] >= width:
+      return None
+    opponent_positions = [gameState.getAgentPosition(i) for i in opponents if gameState.getAgentPosition(i) is not None]
+    if len(opponent_positions) == 0:
+      return None
+    # height = gameState.data.layout.height
+    opps = None
+    if self.red:
+      opps = [opp for opp in opponent_positions if opp[0] >= width]
+    else:
+      opps = [opp for opp in opponent_positions if opp[0] < width]
+    return opps if len(opps) > 0 else None
+  
+  '''
+    capsuleTriggered
+    Check the last 40 (length of scary time) observations. If there is a
+    change in number of capsules, it is scary time
+  '''
+  def capsuleTriggered(self, gameState):
+    history = [self.observationHistory[i] for i in range(-40, 0) if len(self.observationHistory) >= 40]
+    current_obs = self.getCurrentObservation()
+    enemy = self.enemyInSight(gameState)
+    triggered = False
+    if enemy is None:
+        return None
+
+    if history > 0:
+        for hist in history:
+            if self.red:
+                hist_capList = hist.getBlueCapsules()
+                curr_capList = current_obs.getBlueCapsules()
+            else:
+                hist_capList = hist.getRedCapsules()
+                curr_capList = current_obs.getRedCapsules()
+            if  len(hist_capList) == len(curr_capList):
+              continue
+            else:
+                triggered = True
+    if triggered:
+        return True
+    else:
+        return False
+  
+  '''
+    run
+    Run away from enemy
+  '''
+  def run(self, gameState, current_position, enemy_pos):
+    addCapsules = self.getCapsules(gameState) + self.retreatNodes
+    if self.currentGoal not in addCapsules:
+      retreat = min(addCapsules, key=lambda n: self.getMazeDistance(n, current_position))
+      if isinstance(retreat, list):
+        retreat = retreat[0]
+      self.currentGoal = retreat
+    retreatDistance = self.getMazeDistance(self.currentGoal, current_position)
+    qval = float('inf')
+    return_action = None
+    self.touches = 0
+    for action in gameState.getLegalActions(self.index):
+      if action == Directions.STOP:
+        continue
+      successor = self.getSuccessor(gameState, action)
+      succ_pos = successor.getAgentState(self.index).getPosition()
+      dist = self.getMazeDistance(succ_pos, enemy_pos)
+      enemy_there = 1 if enemy_pos == current_position else 0
+      qvalp = -10 * dist + retreatDistance + 100000*enemy_there
+      if qvalp < qval:
+        qval = qvalp
+        return_action = action
+    return return_action
+
+'''
   DAgent
   Defensive strategy: Prioritize defending nodes
 '''
